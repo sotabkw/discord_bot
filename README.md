@@ -1,8 +1,7 @@
-# Discord Bot開発
+# Discord Bot
 
-## Build Code
+## Build Go file
 
 ```
 $ docker up
 ```
-
