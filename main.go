@@ -4,70 +4,61 @@ package main
 import (
 	"fmt"
 	"github.com/bwmarrin/discordgo"
-	"log"
-	"net/http"
+	"github.com/joho/godotenv"
+	_ "github.com/joho/godotenv"
 	"os"
+	"os/signal"
 	"strings"
-	"time"
+	"syscall"
 )
-
-var (
-	vcsession *discordgo.VoiceConnection
-)
-
-// http://localhost:8080/ へアクセスしたときの処理
-func handler(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintf(w, "Hello, World")
-}
 
 func main() {
-	http.HandleFunc("/", handler)
-	http.ListenAndServe(":8080", nil)
 
-	//Discordのセッションを作成
-	discord, err := discordgo.New()
-	discord.Token = os.Getenv("TOKEN")
+	err := godotenv.Load(fmt.Sprintf("../%s.env", os.Getenv("GO_ENV")))
 	if err != nil {
-		fmt.Println("Error logging in")
-		fmt.Println(err)
+		fmt.Println("error:start\n", err)
 	}
 
-	discord.AddHandler(onMessageCreate) //全てのWSAPIイベントが発生した時のイベントハンドラを追加
-	// websocketを開いてlistening開始
-	err = discord.Open()
+	dg, err := discordgo.New("Bot " + os.Getenv("TOKEN"))
 	if err != nil {
-		fmt.Println(err)
-	}
-	defer discord.Close()
-
-	fmt.Println("Listening...")
-	<-make(chan bool) //プログラムが終了しないようロック
-	return
-}
-
-func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
-	err, _ := discordgo.New()
-	if err != nil {
-		log.Println("Error getting channel: ", err)
+		fmt.Println("error:start\n", err)
 		return
 	}
-	fmt.Printf("%20s %20s %20s > %s\n", m.ChannelID, time.Now().Format(time.Stamp), m.Author.Username, m.Content)
 
-	switch {
-	case strings.HasPrefix(m.Content, fmt.Sprintf("%s %s", os.Getenv("APPLICATION_ID"), "通話開始")): //Bot宛に通話開始コマンドが実行された時
-		sendMessage(s, m.ChannelID, "Hello world！")
+	//on message
+	dg.AddHandler(messageCreate)
 
-	case strings.HasPrefix(m.Content, fmt.Sprintf("%s %s", os.Getenv("APPLICATION_ID"), "退出")):
-		vcsession.Disconnect() //今いる通話チャンネルから抜ける
+	err = dg.Open()
+	if err != nil {
+		fmt.Println("error:wss\n", err)
+		return
 	}
+	fmt.Println("BOT Running...")
+
+	//シグナル受け取り可にしてチャネル受け取りを待つ（受け取ったら終了）
+	sc := make(chan os.Signal, 1)
+	signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt, os.Kill)
+	<-sc
+	dg.Close()
 }
 
-//メッセージを送信する関数
-func sendMessage(s *discordgo.Session, channelID string, msg string) {
-	_, err := s.ChannelMessageSend(channelID, msg)
+func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
+	if m.Author.Bot {
+		return
+	}
+	nick := m.Author.Username
+	member, err := s.State.Member(m.GuildID, m.Author.ID)
+	if err == nil && member.Nick != "" {
+		nick = member.Nick
+	}
+	fmt.Println("< " + m.Content + " by " + nick)
 
-	log.Println(">>> " + msg)
-	if err != nil {
-		log.Println("Error sending message: ", err)
+	if m.Content == "日程調整" {
+		s.ChannelMessageSend(m.ChannelID, "カレンダー表示")
+		fmt.Println("> カレンダー表示")
+	}
+	if strings.Contains(m.Content, "日程") {
+		s.ChannelMessageSend(m.ChannelID, "テストテスト")
+		fmt.Println("> テストテスト")
 	}
 }
